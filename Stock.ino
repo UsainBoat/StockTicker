@@ -41,7 +41,7 @@ NTPClient timeClient(ntpUDP, NTP_ADDRESS, NTP_OFFSET, NTP_INTERVAL);
 
 // Variables for timing
 const int MAX_NUM_TICKERS = 50;
-const int LED_MATRIX_WIDTH = 32;
+const int LED_MATRIX_WIDTH = 64;
 const int LED_BRIGHTNESS = 30;
 const int LED_UPDATE_TIME = 75;  //In ms
 const int QUOTE_UPDATE_TIME = 1800000;
@@ -238,7 +238,7 @@ void updateCurrentTicker(){
       //Serial.print("%2C");
     }
   };
-  client.println(F(" HTTP/1.1"));
+  client.println(F(" HTTP/1.0"));
 
   //Headers
   client.print(F("Host: "));
