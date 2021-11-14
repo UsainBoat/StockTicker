@@ -1,23 +1,15 @@
-#include <EEPROM.h>
-
-#include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
-
 #include <Adafruit_GFX.h>
 #include <Adafruit_NeoMatrix.h>
 #include <Adafruit_NeoPixel.h>
-
 #include <String.h>
 #include <NTPClient.h>
 #include <Time.h>
 #include <TimeLib.h>
 #include <Timezone.h>
-
 #define ARDUINOJSON_USE_DOUBLE 1
 #include <ArduinoJson.h>
-
 #include "keys.h"
 
 // Stock ticker settings
@@ -27,6 +19,7 @@ int serialPhase = 0;
 bool connectSuccess = false;
 bool startUpCall = true;
 
+// API address
 #define HOST  "apidojo-yahoo-finance-v1.p.rapidapi.com"
 
 // For HTTPS requests
@@ -39,12 +32,12 @@ WiFiClientSecure client;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTP_ADDRESS, NTP_OFFSET, NTP_INTERVAL);
 
-// Variables for timing
+// Variables for timing and maximum values
 const int MAX_NUM_TICKERS = 50;
 const int LED_MATRIX_WIDTH = 64;
 const int LED_BRIGHTNESS = 30;
 const int LED_UPDATE_TIME = 75;  //In ms
-const int QUOTE_UPDATE_TIME = 1800000;
+const int QUOTE_UPDATE_TIME = 1800000; // 30 minutes in milliseconds
 const int CLOCK_UPDATE_TIME = 100;
 const int DATE_UPDATE_TIME = 300000;
 
@@ -156,30 +149,49 @@ void loop(){
   checkSerial();
 
   // Setup vars for time conditions
-  String hour_string = t.substring(0,2);
-  String am_pm = t.substring(6,8);
+  String hour_string = t.substring(0,2), am_pm = t.substring(6,8), dayString = date.substring(0,3);
+  bool amPmCheck, timeCheck, dayCheck;
+  int hourVal = hour_string.toInt();
 
-  if(hour_string == "08" && am_pm == "AM" || hour_string == "09" && am_pm == "AM" || hour_string == "10" && am_pm == "AM" || hour_string == "11" && am_pm == "AM" ||
-      hour_string == "12" && am_pm == "PM" || hour_string == "01" && am_pm == "PM" || hour_string == "02" && am_pm == "PM" || hour_string == "03" && am_pm == "PM" ||
-      hour_string == "04" && am_pm == "PM"){
-    // Call Yahoo finance API every 30 mins, or at start up to update quote data
-      if(connectSuccess && currentCursor == LED_MATRIX_WIDTH && millis() - updateQuoteTime > QUOTE_UPDATE_TIME || connectSuccess && currentCursor == LED_MATRIX_WIDTH && startUpCall )
+  // Check that it is between 8-5 on a weekday as to not waste API calls when no one is looking
+  if(am_pm == "AM"){
+    amPmCheck = true;
+  } else {
+    amPmCheck = false;
+  }
+
+  if(hourVal >= 8 && hourVal <= 11 && amPmCheck || hourVal >= 12 && hourVal < 5 && !amPmCheck){
+    timeCheck = true;
+  } else {
+    timeCheck = false;
+  }
+
+  if(dayString != "Sat" && dayString != "Sun"){
+    dayCheck = true;
+  } else {
+    dayCheck = false;
+  }
+  // Main logic to run the program
+  if(timeCheck && dayCheck)
       {
-        if(startUpCall == true){
-          startUpCall = false;
-        }
-        updateCurrentTicker();
-        updateQuoteTime = millis();
-    }
-      // Call function to update stock data displayed
-    if(millis() - updateLEDTime > LED_UPDATE_TIME){
-      if(connectSuccess){
-        displayStock();
-      }else{
-        displayNoConnection();
+        // Call Yahoo finance API every 30 mins, or at start up to update quote data
+        if(connectSuccess && currentCursor == LED_MATRIX_WIDTH && millis() - updateQuoteTime > QUOTE_UPDATE_TIME || connectSuccess && currentCursor == LED_MATRIX_WIDTH && startUpCall )
+        {
+          if(startUpCall == true){
+            startUpCall = false;
+          }
+          updateCurrentTicker();
+          updateQuoteTime = millis();
       }
-      updateLEDTime = millis();
-    }
+        // Call function to update stock data displayed
+      if(millis() - updateLEDTime > LED_UPDATE_TIME){
+        if(connectSuccess){
+          displayStock();
+        }else{
+          displayNoConnection();
+        }
+        updateLEDTime = millis();
+      }
   }else{
     displayTime();
   } 
