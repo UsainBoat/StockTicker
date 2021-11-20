@@ -1,19 +1,18 @@
+#include <EEPROM.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
-#include <WiFiUdp.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_NeoMatrix.h>
 #include <Adafruit_NeoPixel.h>
 #include <String.h>
-#include <NTPClient.h>
-#include <Time.h>
-#include <TimeLib.h>
-#include <Timezone.h>
+#include <time.h>
 #define ARDUINOJSON_USE_DOUBLE 1
 #include <ArduinoJson.h>
 #include "keys.h"
 
 // Stock ticker settings
-const int EEPROM_SIZE = 512;  //Can be max of 4096
+const int EEPROM_SIZE = 1024;  //Can be max of 4096
 const int WIFI_TIMEOUT = 30000; //In ms
 int serialPhase = 0;
 bool connectSuccess = false;
@@ -26,11 +25,8 @@ bool startUpCall = true;
 WiFiClientSecure client;
 
 // Clock Settings
-#define NTP_OFFSET   60 * 60      // In seconds
-#define NTP_INTERVAL 60 * 1000    // In miliseconds
+#define MY_TIMEZONE "CST6CDT,M3.2.0,M11.1.0" // https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 #define NTP_ADDRESS  "us.pool.ntp.org"  // change this to whatever pool is closest (see ntp.org)
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, NTP_ADDRESS, NTP_OFFSET, NTP_INTERVAL);
 
 // Variables for timing and maximum values
 const int MAX_NUM_TICKERS = 50;
@@ -51,6 +47,7 @@ int numTickers = 0;
 String tickers[MAX_NUM_TICKERS];
 float values[MAX_NUM_TICKERS];
 double changes[MAX_NUM_TICKERS];
+int n;
 
 // Ticker Change website
 const char* header = "<h1>Ticker Updater</h1>";
@@ -63,10 +60,12 @@ ESP8266WebServer server(80);
 
 // Variables for clock
 String date;
-String t;
+String hourString;
+String minuteString;
 const char * days[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"} ;
 const char * months[] = {"Jan", "Feb", "Mar", "Apr", "May", "June", "July", "Aug", "Sep", "Oct", "Nov", "Dec"} ;
-const char * ampm[] = {"AM", "PM"} ;
+time_t now;
+tm tm;
 
 // LED Matrix setup
 Adafruit_NeoMatrix matrix = Adafruit_NeoMatrix(32, 8, 2, 1, 0,
@@ -80,10 +79,11 @@ void setup(){
 
   //Read EEPROM to get ssid/password and stock tickers
   readEEPROM();
+    
+  // configure clock for outside of business hours
+  configTime(MY_TIMEZONE, NTP_ADDRESS);
 
-  timeClient.begin();   // Start the NTP UDP client
-
-  //Connect to the wifi
+  //Connect to wifi
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
@@ -135,44 +135,26 @@ void loop(){
   // Update time
   if(millis()-lastTime>=1000){
     count_sec++;
-    if(count_sec>70)
-      count_sec = 0;
+    if(count_sec>60)
+      {
+        count_sec = 0;
+      }
     lastTime = millis();
     }
 
-  if(count_sec>60 || startUpCall){
+  if(count_sec>=60 || startUpCall){
     read_time_date();
+    //Serial.print("The time is: ");
+    //Serial.print(hourString + ":" + minuteString);
+    //Serial.println(" " + date);
   }
     
   server.handleClient();
 
   checkSerial();
 
-  // Setup vars for time conditions
-  String hour_string = t.substring(0,2), am_pm = t.substring(6,8), dayString = date.substring(0,3);
-  bool amPmCheck, timeCheck, dayCheck;
-  int hourVal = hour_string.toInt();
-
-  // Check that it is between 8-5 on a weekday as to not waste API calls when no one is looking
-  if(am_pm == "AM"){
-    amPmCheck = true;
-  } else {
-    amPmCheck = false;
-  }
-
-  if(hourVal >= 8 && hourVal <= 11 && amPmCheck || hourVal >= 12 && hourVal < 5 && !amPmCheck){
-    timeCheck = true;
-  } else {
-    timeCheck = false;
-  }
-
-  if(dayString != "Sat" && dayString != "Sun"){
-    dayCheck = true;
-  } else {
-    dayCheck = false;
-  }
   // Main logic to run the program
-  if(timeCheck && dayCheck)
+  if(tm.tm_hour >= 8 && tm.tm_hour < 17 && tm.tm_wday != 0 || tm.tm_hour >= 8 && tm.tm_hour < 17 && tm.tm_wday != 6)
       {
         // Call Yahoo finance API every 30 mins, or at start up to update quote data
         if(connectSuccess && currentCursor == LED_MATRIX_WIDTH && millis() - updateQuoteTime > QUOTE_UPDATE_TIME || connectSuccess && currentCursor == LED_MATRIX_WIDTH && startUpCall )
@@ -180,9 +162,13 @@ void loop(){
           if(startUpCall == true){
             startUpCall = false;
           }
-          updateCurrentTicker();
+          n = 0;
+          while(!updateCurrentTicker() && n < 3){ // attempt to make sure that tickers are properly updated
+              n++;
+            };
           updateQuoteTime = millis();
       }
+      yield();
         // Call function to update stock data displayed
       if(millis() - updateLEDTime > LED_UPDATE_TIME){
         if(connectSuccess){
@@ -194,7 +180,11 @@ void loop(){
       }
   }else{
     displayTime();
+    if(startUpCall == true){
+      startUpCall = false;
+    }
   } 
+  yield();
 }
 
 void checkSerial(){
@@ -227,12 +217,12 @@ void checkSerial(){
 }
 
 
-void updateCurrentTicker(){
+bool updateCurrentTicker(){
   Serial.println("Updating Tickers");
   // Use WiFiClient class to create TCP connections
   if (!client.connect(HOST, 443)) {
     Serial.println("connection failed");
-    return;
+    return false;
   }
   
   // give the esp a breather
@@ -266,9 +256,9 @@ void updateCurrentTicker(){
   if (client.println() == 0)
   {
     Serial.println(F("Failed to send request"));
-    return;
+    return false;
   }
-
+  yield();
   // Check HTTP status
   char status[32] = {0};
   client.readBytesUntil('\r', status, sizeof(status));
@@ -276,7 +266,7 @@ void updateCurrentTicker(){
   {
     Serial.print(F("Unexpected response: "));
     Serial.println(status);
-    return;
+    return false;
   }
 
   // Skip HTTP headers
@@ -284,7 +274,7 @@ void updateCurrentTicker(){
   if (!client.find(endOfHeaders)) {
     Serial.println(F("Invalid response"));
     client.stop();
-    return;
+    return false;
   }
 
   while (client.available()) {
@@ -302,7 +292,7 @@ void updateCurrentTicker(){
     if (error) {
       Serial.print(F("deserializeJson() failed: "));
       Serial.println(error.f_str());
-      return;
+      return false;
     }
     // Pull the value and change for each ticker requested. This has to be done in a for loop to make sure that all of the data
     // is gotten. 
@@ -311,6 +301,7 @@ void updateCurrentTicker(){
       values[i] = doc["quoteResponse"]["result"][i]["regularMarketPrice"];
     }
   }
+  return true;
 }
 
 String listOfTickers(){
@@ -511,45 +502,37 @@ void displayIP(){
 }
 
 void read_time_date(){
-    date = "";  // clear the variables
-    t = "";
-    
-    // update the NTP client and get the UNIX UTC timestamp 
-    timeClient.update();
-    unsigned long epochTime =  timeClient.getEpochTime();
-
-    // convert received time stamp to time_t object
-    time_t local, utc;
-    utc = epochTime;
-
-    // Then convert the UTC UNIX timestamp to local time
-    TimeChangeRule usEDT = {"EDT", Second, Sun, Mar, 2, -360};  //UTC - 5 hours - change this as needed
-    TimeChangeRule usEST = {"EST", First, Sun, Nov, 2, -420};   //UTC - 6 hours - change this as needed
-    Timezone usEastern(usEDT, usEST);
-    local = usEastern.toLocal(utc);
-
-    // now format the Time variables into strings with proper names for month, day etc
-    date += days[weekday(local)-1];
-    date += ", ";
-    date += months[month(local)-1];
-    date += " ";
-    date += day(local);
-    date += ", ";
-    date += year(local);
-
-    // format the time to 12-hour format with AM/PM and no seconds
-    t += hourFormat12(local);
-    t += ":";
-    if(minute(local) < 10)  // add a zero if minute is under 10
-      t += "0";
-    t += minute(local);
-    t += " ";
-    t += ampm[isPM(local)];
-    if(t.length() < 8){
-      t = "0" + t;
+  date = "";  // clear the variables
+  time(&now);
+  localtime_r(&now, &tm);
+  // Update time vars
+  // Get hour and put it in 12 hour format
+  if(tm.tm_hour >= 13)
+  {
+    hourString = String(tm.tm_hour - 12);
+    if(hourString.length() == 1)
+    {
+      hourString = "0" + hourString;
     }
-    //Serial.println(date);
-    //Serial.println(t);
+  } else {
+    hourString = String(tm.tm_hour);
+    if(hourString.length() == 1)
+    {
+      hourString = "0" + hourString;
+    }
+  }
+  // Get minutes and put it in proper clock format
+  minuteString = String(tm.tm_min);
+  if(minuteString.length() == 1)
+  {
+    minuteString = "0" + minuteString;
+  }
+  // Update date var
+  date += days[tm.tm_wday];
+  date += ", ";
+  date += months[tm.tm_mon];
+  date += ", ";
+  date += String(tm.tm_year + 1900);
 }
 
 void displayTime(){
@@ -557,7 +540,7 @@ void displayTime(){
     matrix.fillScreen(0);
     matrix.setCursor(1, 0);
     matrix.setTextColor(matrix.Color(255, 255, 255));
-    matrix.print(t);
+    matrix.print(hourString + ":" + minuteString);
     matrix.show();
     
     updateClockTime = millis();
