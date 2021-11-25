@@ -60,8 +60,7 @@ ESP8266WebServer server(80);
 
 // Variables for clock
 String date;
-String hourString;
-String minuteString;
+String hourString, minuteString, amPmString;
 const char * days[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"} ;
 const char * months[] = {"Jan", "Feb", "Mar", "Apr", "May", "June", "July", "Aug", "Sep", "Oct", "Nov", "Dec"} ;
 time_t now;
@@ -440,18 +439,18 @@ void displayStock(){
   {
     matrix.clear();
     matrix.setCursor(currentCursor,0);
-    matrix.setTextColor(matrix.Color(255,255,255));
+    matrix.setTextColor(matrix.Color(255/2,255/2,255/2));
     matrix.print(tickers[currentTicker] + " ");
-    matrix.setTextColor(matrix.Color(255,255,0));
+    matrix.setTextColor(matrix.Color(255/2,255/2,0));
     matrix.print("$" + String(values[currentTicker]) + " ");
     if(changes[currentTicker] >=0)
     {
-      matrix.setTextColor(matrix.Color(0,255,0));
+      matrix.setTextColor(matrix.Color(0,255/2,0));
       matrix.print("+" + String(changes[currentTicker]) + " ");
     }
     else
     {
-      matrix.setTextColor(matrix.Color(255,0,0));
+      matrix.setTextColor(matrix.Color(255/2,0,0));
       matrix.print(String(changes[currentTicker]) + " ");
     }
     matrix.show();
@@ -473,7 +472,7 @@ void displayNoConnection(){
   {
     matrix.clear();
     matrix.setCursor(currentCursor,0);
-    matrix.setTextColor(matrix.Color(255,255,255));
+    matrix.setTextColor(matrix.Color(255/2,255/2,255/2));
     matrix.print("Unable to connect to network. Check network settings and restart.");
     matrix.show();
     currentCursor--;
@@ -493,7 +492,7 @@ void displayIP(){
   {
     matrix.clear();
     matrix.setCursor(cur,0);
-    matrix.setTextColor(matrix.Color(255,255,255));
+    matrix.setTextColor(matrix.Color(255/2,255/2,255/2));
     matrix.print(ip);
     matrix.show();
     delay(LED_UPDATE_TIME);
@@ -510,12 +509,14 @@ void read_time_date(){
   if(tm.tm_hour >= 13)
   {
     hourString = String(tm.tm_hour - 12);
+    amPmString = " PM";
     if(hourString.length() == 1)
     {
       hourString = "0" + hourString;
     }
   } else {
     hourString = String(tm.tm_hour);
+    amPmString = " AM";
     if(hourString.length() == 1)
     {
       hourString = "0" + hourString;
@@ -528,19 +529,15 @@ void read_time_date(){
     minuteString = "0" + minuteString;
   }
   // Update date var
-  date += days[tm.tm_wday];
-  date += ", ";
-  date += months[tm.tm_mon];
-  date += ", ";
-  date += String(tm.tm_year + 1900);
+  date = String(days[tm.tm_wday]) + ", " + String(months[tm.tm_mon]) + ' ' + String(tm.tm_mday) + ", " + String(tm.tm_year + 1900);
 }
 
 void displayTime(){
   if(millis() - updateClockTime > CLOCK_UPDATE_TIME ){
     matrix.fillScreen(0);
-    matrix.setCursor(1, 0);
-    matrix.setTextColor(matrix.Color(255, 255, 255));
-    matrix.print(hourString + ":" + minuteString);
+    matrix.setCursor(8, 0);
+    matrix.setTextColor(matrix.Color(255/2, 255/2, 255/2));
+    matrix.print(hourString + ":" + minuteString + amPmString);
     matrix.show();
     
     updateClockTime = millis();
@@ -552,7 +549,7 @@ void displayTime(){
     {
       matrix.clear();
       matrix.setCursor(cur,0);
-      matrix.setTextColor(matrix.Color(255,255,255));
+      matrix.setTextColor(matrix.Color(255/2,255/2,255/2));
       matrix.print(date);
       matrix.show();
       delay(LED_UPDATE_TIME);
