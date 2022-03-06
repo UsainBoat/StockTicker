@@ -8,7 +8,7 @@ This project uses an ESP8266 and two 8x32 LED matrix panels (WS2812B LEDs) to sh
 # How to use
 To use this project, you will need an API key from the YH Finance API on RapidAPI.
 
-Once you have the API key, you will need to add the following lines with the right information.
+Once you have the API key, you will need to add the following lines with the right information to the keys header file included.
 
 ```
 // Wifi
