@@ -225,7 +225,7 @@ bool updateCurrentTicker(){
   }
   
   // give the esp a breather
-  //yield();
+  yield();
 
   // Send HTTPS request
   client.print(F("GET "));
@@ -233,10 +233,8 @@ bool updateCurrentTicker(){
   client.print(F("/market/v2/get-quotes?region=US&symbols="));
   for(int i = 0; i < numTickers; i++){
     client.print(tickers[i]);
-    //Serial.print(tickers[i]);
     if(i != (numTickers - 1)){
       client.print(F("%2C"));
-      //Serial.print("%2C");
     }
   };
   client.println(F(" HTTP/1.0"));
@@ -276,29 +274,28 @@ bool updateCurrentTicker(){
     return false;
   }
 
-  while (client.available()) {
-    // The filter: it contains "true" for each value we want to keep
-    StaticJsonDocument<200> filter;
-    JsonObject filter_quoteResponse_result_0 = filter["quoteResponse"]["result"].createNestedObject();
-    filter_quoteResponse_result_0["regularMarketChange"] = true;
-    filter_quoteResponse_result_0["regularMarketPrice"] = true;
+  // The filter: it contains "true" for each value we want to keep
+  StaticJsonDocument<200> filter;
+  JsonObject filter_quoteResponse_result_0 = filter["quoteResponse"]["result"].createNestedObject();
+  filter_quoteResponse_result_0["regularMarketChange"] = true;
+  filter_quoteResponse_result_0["regularMarketPrice"] = true;
 
-    // Setup Document Size, this is considerably larger than suggested to hopefully acomodate more quote requests
-    StaticJsonDocument<500> doc;
-    // Deserialize JSON response and check for errors
-    DeserializationError error = deserializeJson(doc, client, DeserializationOption::Filter(filter));
-    
-    if (error) {
-      Serial.print(F("deserializeJson() failed: "));
-      Serial.println(error.f_str());
-      return false;
-    }
-    // Pull the value and change for each ticker requested. This has to be done in a for loop to make sure that all of the data
-    // is gotten. 
-    for(int i = 0; i < numTickers; i++){
-      changes[i] = doc["quoteResponse"]["result"][i]["regularMarketChange"];
-      values[i] = doc["quoteResponse"]["result"][i]["regularMarketPrice"];
-    }
+  // Setup Document Size, this is considerably larger than suggested to hopefully acomodate more quote requests
+  DynamicJsonDocument doc(4096);
+  // Deserialize JSON response and check for errors
+  DeserializationError error = deserializeJson(doc, client, DeserializationOption::Filter(filter));
+  yield();
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return false;
+  }
+
+  // Pull the value and change for each ticker requested. This has to be done in a for loop to make sure that all of the data
+  // is gotten. 
+  for(int i = 0; i < numTickers; i++){
+    changes[i] = doc["quoteResponse"]["result"][i]["regularMarketChange"];
+    values[i] = doc["quoteResponse"]["result"][i]["regularMarketPrice"];
   }
   return true;
 }
